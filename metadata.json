@@ -1,0 +1,6 @@
+{
+  "name": "FlowLens",
+  "description": "ComfyUI Workflow Library & Visual Notebook. Organize, visualize, annotate, and explore ComfyUI node graphs with multi-dimensional tagging and asset notebooks.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
