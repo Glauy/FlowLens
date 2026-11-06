@@ -22,6 +22,7 @@ interface WorkflowCardProps {
   onToggleSelect: (id: string, e: React.MouseEvent) => void;
   onToggleFavorite: (id: string, e: React.MouseEvent) => void;
   onOpen: (id: string) => void;
+  onChangeCover?: (workflow: WorkflowRecord, e: React.MouseEvent) => void;
 }
 
 export const WorkflowCard: React.FC<WorkflowCardProps> = ({
@@ -31,7 +32,8 @@ export const WorkflowCard: React.FC<WorkflowCardProps> = ({
   noteSnippet,
   isSelected,
   onToggleFavorite,
-  onOpen
+  onOpen,
+  onChangeCover
 }) => {
   // Resolve designated cover asset first, then fallback to showcase or first asset
   const coverAsset =
@@ -93,6 +95,19 @@ export const WorkflowCard: React.FC<WorkflowCardProps> = ({
           title={workflow.isFavorite ? '取消收藏' : '加入收藏'}
         >
           <Star className={`w-3.5 h-3.5 ${workflow.isFavorite ? 'fill-current' : ''}`} />
+        </button>
+
+        {/* Change Cover Hover Button */}
+        <button
+          onClick={e => {
+            e.stopPropagation();
+            onChangeCover?.(workflow, e);
+          }}
+          className="absolute bottom-2 left-2 px-2.5 py-1 rounded-lg bg-black/80 hover:bg-black backdrop-blur-md text-[10px] font-medium text-zinc-300 hover:text-white border border-white/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 z-10 cursor-pointer shadow-lg hover:border-cyan-400"
+          title="从素材库更换或上传新封面"
+        >
+          <ImageIcon className="w-3 h-3 text-cyan-400" />
+          <span>换封面</span>
         </button>
 
         {/* Asset Count Badge */}

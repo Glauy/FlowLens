@@ -4,8 +4,9 @@
  */
 
 import React, { useState, useRef } from 'react';
-import { ComfyNode, getNodeDimensions, AssetRecord } from '../../types/workflow';
+import { ComfyNode, getNodeDimensions, AssetRecord, WorkflowAssetRecord } from '../../types/workflow';
 import { getSlotColor, getNodeHeaderColor } from '../../utils/theme';
+import { isNodeBindable, isWidgetBindable } from '../../utils/nodeCandidateUtils';
 import {
   Image as ImageIcon,
   Music,
@@ -27,6 +28,7 @@ interface NodeViewProps {
   isDownstream: boolean;
   isDimmed?: boolean;
   assets?: AssetRecord[];
+  workflowAssetLinks?: { link: WorkflowAssetRecord; asset: AssetRecord }[];
   onSelect: (nodeId: string, isShift: boolean) => void;
   onMouseDown: (e: React.MouseEvent, nodeId: string) => void;
   onDoubleClick: (nodeId: string) => void;
@@ -42,6 +44,7 @@ export const NodeView: React.FC<NodeViewProps> = ({
   isDownstream,
   isDimmed = false,
   assets = [],
+  workflowAssetLinks = [],
   onSelect,
   onMouseDown,
   onDoubleClick,
@@ -59,24 +62,49 @@ export const NodeView: React.FC<NodeViewProps> = ({
   // Prompt Copy State
   const [copiedPrompt, setCopiedPrompt] = useState(false);
 
-  // Match asset to this node
+  // Strictly check whether this node is a media-capable node
+  // Non-media nodes (KSampler, LoRA, Cache, VAE, CLIP, etc.) can NEVER display or bind assets
+  const isMediaNode = isNodeBindable(node);
+
+  // 1. Explicitly bound asset to this node (Absolute highest priority - only for media nodes)
+  const explicitBoundAsset = React.useMemo(() => {
+    if (!isMediaNode || !workflowAssetLinks || workflowAssetLinks.length === 0) return null;
+    const match = workflowAssetLinks.find(
+      item => item.link.nodeId !== undefined && item.link.nodeId !== null && String(item.link.nodeId) === idStr
+    );
+    return match ? match.asset : null;
+  }, [isMediaNode, workflowAssetLinks, idStr]);
+
+  // Match asset to this node - STRICTLY restricted to media-capable nodes
   const matchedAsset = React.useMemo(() => {
+    // Non-media nodes (KSampler, LoRA, Cache, VAE, etc.) MUST NEVER match or display assets!
+    if (!isMediaNode) return null;
+
+    if (explicitBoundAsset) return explicitBoundAsset;
     if (!assets || assets.length === 0) return null;
+
     const title = (node.title || '').toLowerCase();
     const type = (node.type || '').toLowerCase();
-    const widgets = (node.widgets_values || []).map(w => String(w).toLowerCase());
 
-    // 1. Direct widget filename match (e.g. pose_model_photo.jpg, reference_asian_cyberpunk_face.png)
-    for (const asset of assets) {
-      const aName = asset.name.toLowerCase();
-      for (const w of widgets) {
-        if (w.includes(aName) || aName.includes(w) || (asset.dataUrl && asset.dataUrl.toLowerCase().includes(w))) {
-          return asset;
+    // 2. Direct widget filename match on bindable widgets ONLY
+    const widgets = node.widgets_values || [];
+    for (let idx = 0; idx < widgets.length; idx++) {
+      const w = widgets[idx];
+      if (typeof w === 'string' && isWidgetBindable(w, idx, node)) {
+        const wClean = w.trim().toLowerCase();
+        const wBase = wClean.replace(/\.[^/.]+$/, '');
+        for (const asset of assets) {
+          const aName = asset.name.toLowerCase();
+          const aBase = aName.replace(/\.[^/.]+$/, '');
+          // Exact or precise base name match (min length 4 to avoid accidental substring matches)
+          if (wClean === aName || wBase === aBase || (wBase.length >= 4 && aName.includes(wBase))) {
+            return asset;
+          }
         }
       }
     }
 
-    // 2. Pose / Portrait / Reference nodes (e.g. from user screenshot: "真人参考图 image 2 #4")
+    // 3. Pose / Portrait / Reference nodes (e.g. "真人参考图 image 2 #4", "姿势图库 image 1 #2")
     if (title.includes('真人') || title.includes('参考图') || title.includes('image 2') || title.includes('face') || title.includes('portrait')) {
       const face = assets.find(a =>
         a.id.includes('pose_model') ||
@@ -88,7 +116,7 @@ export const NodeView: React.FC<NodeViewProps> = ({
       if (face) return face;
     }
 
-    if (title.includes('姿势') || title.includes('线稿') || title.includes('sketch') || title.includes('lineart')) {
+    if (title.includes('姿势') || title.includes('线稿') || title.includes('sketch') || title.includes('lineart') || type.includes('pose') || type.includes('gallery')) {
       const sketch = assets.find(a =>
         a.id.includes('pose_sketch') ||
         a.name.includes('姿势') ||
@@ -98,42 +126,32 @@ export const NodeView: React.FC<NodeViewProps> = ({
       if (sketch) return sketch;
     }
 
-    // 3. Audio nodes
+    // 4. Audio nodes
     if (type.includes('audio') || title.includes('音频') || title.includes('sound') || title.includes('music')) {
       const audioAsset = assets.find(a => a.type === 'audio' || a.mimeType.startsWith('audio/'));
       if (audioAsset) return audioAsset;
     }
 
-    // 4. Video nodes
+    // 5. Video nodes
     if (type.includes('video') || title.includes('视频') || type.includes('animatediff')) {
       const vidAsset = assets.find(a => a.type === 'video' || a.mimeType.startsWith('video/'));
       if (vidAsset) return vidAsset;
     }
 
-    // 5. Output / Save nodes
+    // 6. Output / Save nodes
     if (type.includes('save') || type.includes('preview') || title.includes('输出') || title.includes('output') || title.includes('最终')) {
       const outAsset = assets.find(a => a.type === 'cover' || a.type === 'showcase' || a.type === 'output');
       if (outAsset) return outAsset;
     }
 
-    // 6. Generic LoadImage fallback
-    if (type === 'loadimage' || type === 'loadimagemask') {
+    // 7. Generic LoadImage fallback ONLY for actual image loaders
+    if (type === 'loadimage' || type === 'loadimagemask' || type.includes('loadimage')) {
       const inputAsset = assets.find(a => a.type === 'reference' || a.type === 'input') || assets[0];
       if (inputAsset) return inputAsset;
     }
 
     return null;
-  }, [node, assets]);
-
-  const isMediaNode =
-    ['LoadImage', 'SaveImage', 'PreviewImage', 'ImageSave', 'LoadAudio', 'SaveAudio', 'LoadVideo', 'VHS_VideoCombine'].includes(node.type) ||
-    node.title?.includes('参考') ||
-    node.title?.includes('姿势') ||
-    node.title?.includes('输出') ||
-    node.title?.includes('音频');
-  const idStr = String(node.id);
-  const [width, height] = getNodeDimensions(node);
-  const headerColor = node.color || getNodeHeaderColor(node.type);
+  }, [isMediaNode, explicitBoundAsset, node, assets]);
 
   const isReroute = node.type === 'Reroute';
 
@@ -358,13 +376,36 @@ export const NodeView: React.FC<NodeViewProps> = ({
                   alt={matchedAsset.name}
                   className="w-full h-36 object-cover group-hover/img:scale-105 transition-transform duration-300"
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent opacity-0 group-hover/img:opacity-100 transition-opacity flex items-end justify-between p-2">
-                  <span className="text-[10px] text-zinc-200 truncate max-w-[140px] font-medium">
-                    {matchedAsset.name}
+                {explicitBoundAsset && (
+                  <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500 text-zinc-950 flex items-center gap-1 shadow-md z-10 select-none">
+                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-950 animate-pulse" />
+                    <span>已绑定显示</span>
                   </span>
-                  <span className="text-[10px] text-cyan-300 font-mono flex items-center gap-1 bg-black/60 px-1.5 py-0.5 rounded backdrop-blur">
-                    <Maximize2 className="w-2.5 h-2.5" /> 放大
-                  </span>
+                )}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-transparent opacity-0 group-hover/img:opacity-100 transition-opacity flex items-end justify-between p-2">
+                  <div className="min-w-0 pr-1">
+                    <span className="text-[10px] text-zinc-200 truncate block font-medium">
+                      {matchedAsset.name}
+                    </span>
+                    {explicitBoundAsset && (
+                      <span className="text-[9px] text-emerald-400 font-mono">专属绑定素材</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={e => {
+                        e.stopPropagation();
+                        onBindAsset?.(node);
+                      }}
+                      className="text-[10px] text-zinc-300 hover:text-white bg-white/20 hover:bg-white/30 px-1.5 py-0.5 rounded backdrop-blur transition-colors cursor-pointer"
+                      title="更换此节点绑定的素材"
+                    >
+                      更换
+                    </button>
+                    <span className="text-[10px] text-cyan-300 font-mono flex items-center gap-0.5 bg-black/60 px-1.5 py-0.5 rounded backdrop-blur">
+                      <Maximize2 className="w-2.5 h-2.5" /> 放大
+                    </span>
+                  </div>
                 </div>
               </div>
             )}

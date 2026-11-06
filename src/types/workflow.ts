@@ -160,6 +160,17 @@ export interface WorkflowAssetRecord {
   caption?: string;
   order: number;
   nodeId?: number | string; // 可选关联到具体节点
+  paramName?: string; // 绑定的具体参数或输入端口 (如 "image", "mask", "widget[0]")
+  slotIndex?: number; // 关联的端口或Widget索引
+}
+
+export interface AssetUsage {
+  workflowId: string;
+  workflowName: string;
+  modelInfo: string;
+  isCover: boolean;
+  assetType?: AssetType;
+  caption?: string;
 }
 
 export interface WorkflowNoteRecord {

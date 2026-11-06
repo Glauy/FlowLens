@@ -4,27 +4,49 @@
  */
 
 import React, { useState } from 'react';
-import { X, Copy, Check, Code, Sliders, ArrowRight } from 'lucide-react';
-import { ComfyNode, ComfyWorkflowRaw } from '../../types/workflow';
+import { X, Copy, Check, Code, Sliders, ArrowRight, Link2, Trash2, Image as ImageIcon, Video as VideoIcon, Music, Sparkles } from 'lucide-react';
+import { ComfyNode, ComfyWorkflowRaw, WorkflowAssetRecord, AssetRecord } from '../../types/workflow';
 import { getSlotColor, getNodeHeaderColor } from '../../utils/theme';
+import { isNodeBindable, isWidgetBindable, isInputSlotBindable } from '../../utils/nodeCandidateUtils';
 
 interface NodeDetailDrawerProps {
   node: ComfyNode | null;
   raw: ComfyWorkflowRaw;
   onClose: () => void;
   onSelectNodeById: (nodeId: string) => void;
+  workflowAssetLinks?: { link: WorkflowAssetRecord; asset: AssetRecord }[];
+  onOpenBindAssetModal?: (nodeId: string, paramName?: string, slotIndex?: number) => void;
+  onUnbindNodeAsset?: (nodeId: string) => void;
+  isEmbedded?: boolean;
 }
 
 export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
   node,
   raw,
   onClose,
-  onSelectNodeById
+  onSelectNodeById,
+  workflowAssetLinks = [],
+  onOpenBindAssetModal,
+  onUnbindNodeAsset,
+  isEmbedded = false
 }) => {
   const [activeTab, setActiveTab] = useState<'params' | 'json'>('params');
   const [copied, setCopied] = useState(false);
 
-  if (!node) return null;
+  if (!node) {
+    if (isEmbedded) {
+      return (
+        <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-zinc-500">
+          <Sliders className="w-10 h-10 text-zinc-700 mb-3" />
+          <span className="text-xs font-medium text-zinc-400">未选择节点</span>
+          <span className="text-[11px] text-zinc-600 mt-1 max-w-xs">
+            在左侧画布中点击或双击任意节点，即可在此实时查看参数、输入端口与连线关系
+          </span>
+        </div>
+      );
+    }
+    return null;
+  }
 
   const headerColor = node.color || getNodeHeaderColor(node.type);
 
@@ -33,6 +55,14 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
   // Outgoing links from this node
   const outgoingLinks = raw.links.filter(l => String(l[1]) === String(node.id));
 
+  // Find if an asset is currently bound to this specific node
+  const boundAssetItem = workflowAssetLinks.find(
+    l => l.link.nodeId !== undefined && l.link.nodeId !== null && String(l.link.nodeId) === String(node.id)
+  );
+
+  // Check if node is eligible for media asset binding
+  const isBindable = isNodeBindable(node);
+
   const handleCopyJson = () => {
     navigator.clipboard.writeText(JSON.stringify(node, null, 2));
     setCopied(true);
@@ -40,10 +70,16 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
   };
 
   return (
-    <div className="absolute top-14 right-0 bottom-0 w-96 bg-zinc-950/95 border-l border-zinc-800 shadow-2xl backdrop-blur-md flex flex-col z-40 text-zinc-200">
+    <div
+      className={
+        isEmbedded
+          ? 'flex-1 flex flex-col min-h-0 bg-transparent text-zinc-200 overflow-hidden'
+          : 'absolute inset-y-0 right-0 w-96 sm:w-[400px] bg-zinc-950/98 border-l border-zinc-800/90 shadow-2xl backdrop-blur-xl flex flex-col z-40 text-zinc-200 animate-in slide-in-from-right-4 duration-200'
+      }
+    >
       {/* Header */}
       <div
-        className="p-4 border-b border-zinc-800/80 flex items-start justify-between"
+        className="p-3.5 border-b border-zinc-800/80 flex items-start justify-between bg-zinc-950/40"
         style={{ borderTop: `4px solid ${headerColor}` }}
       >
         <div>
@@ -58,12 +94,14 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
           <div className="text-xs font-mono text-zinc-400 mt-0.5">{node.type}</div>
         </div>
 
-        <button
-          onClick={onClose}
-          className="p-1.5 hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-white transition-colors cursor-pointer"
-        >
-          <X className="w-4 h-4" />
-        </button>
+        {!isEmbedded && (
+          <button
+            onClick={onClose}
+            className="p-1.5 hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-white transition-colors cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
       </div>
 
       {/* Tabs */}
@@ -97,6 +135,86 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
       <div className="flex-1 overflow-y-auto p-4 space-y-5">
         {activeTab === 'params' ? (
           <>
+            {/* Node Asset Binding Section - Only displayed for media-capable nodes */}
+            {isBindable && (
+              <div className="p-3.5 rounded-xl bg-zinc-900/90 border border-zinc-800/80 shadow-inner">
+                <div className="flex items-center justify-between mb-2.5">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-300">
+                    <Link2 className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>节点展示素材绑定</span>
+                  </div>
+                  {boundAssetItem && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-950/70 border border-cyan-800 text-cyan-300 font-medium">
+                      画布展示生效中
+                    </span>
+                  )}
+                </div>
+
+                {boundAssetItem ? (
+                  <div className="space-y-2.5">
+                    <div className="flex items-center gap-3 bg-zinc-950/70 p-2.5 rounded-lg border border-zinc-800">
+                      <div className="w-14 h-14 rounded-md overflow-hidden bg-zinc-900 border border-zinc-700/60 shrink-0 flex items-center justify-center relative group">
+                        {boundAssetItem.asset.type === 'video' ? (
+                          <video src={boundAssetItem.asset.dataUrl} className="w-full h-full object-cover" muted />
+                        ) : boundAssetItem.asset.type === 'audio' ? (
+                          <Music className="w-6 h-6 text-cyan-400" />
+                        ) : (
+                          <img src={boundAssetItem.asset.dataUrl} alt={boundAssetItem.asset.name} className="w-full h-full object-cover" />
+                        )}
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs font-medium text-white truncate" title={boundAssetItem.asset.name}>
+                          {boundAssetItem.asset.name}
+                        </div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 uppercase">
+                            {boundAssetItem.asset.type}
+                          </span>
+                          {boundAssetItem.link.paramName && (
+                            <span className="text-[10px] font-mono text-cyan-400 truncate max-w-[130px]">
+                              &rarr; {boundAssetItem.link.paramName}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => onOpenBindAssetModal?.(String(node.id), boundAssetItem.link.paramName, boundAssetItem.link.slotIndex)}
+                        className="flex-1 py-1.5 px-2 text-xs font-medium rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>更换素材 / 参数</span>
+                      </button>
+                      <button
+                        onClick={() => onUnbindNodeAsset?.(String(node.id))}
+                        className="py-1.5 px-2.5 text-xs font-medium rounded-lg bg-red-950/30 hover:bg-red-900/50 text-red-400 border border-red-900/40 transition-colors flex items-center justify-center gap-1 cursor-pointer"
+                        title="解除绑定 (此素材保留在工作流与素材库中，仅从节点解绑)"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>解绑</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-zinc-950/50 border border-dashed border-zinc-800 rounded-lg p-3 text-center space-y-2">
+                    <p className="text-xs text-zinc-400">
+                      当前节点尚未绑定展示素材。绑定后将在画布节点内直观预览输入素材图。
+                    </p>
+                    <button
+                      onClick={() => onOpenBindAssetModal?.(String(node.id))}
+                      className="w-full py-1.5 px-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-medium flex items-center justify-center gap-1.5 shadow-sm transition-colors cursor-pointer"
+                    >
+                      <Link2 className="w-3.5 h-3.5" />
+                      <span>从素材库绑定资产至此节点</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Widget Values / Parameters */}
             <div>
               <div className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-2">
@@ -104,17 +222,31 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
               </div>
               {node.widgets_values && node.widgets_values.length > 0 ? (
                 <div className="space-y-2">
-                  {node.widgets_values.map((w, idx) => (
-                    <div
-                      key={idx}
-                      className="p-2.5 rounded-lg bg-zinc-900 border border-zinc-800 text-xs font-mono break-all"
-                    >
-                      <span className="text-zinc-500 mr-2">[{idx}]:</span>
-                      <span className="text-zinc-200">
-                        {typeof w === 'object' ? JSON.stringify(w) : String(w)}
-                      </span>
-                    </div>
-                  ))}
+                  {node.widgets_values.map((w, idx) => {
+                    const canBind = isBindable && isWidgetBindable(w, idx, node);
+                    return (
+                      <div
+                        key={idx}
+                        className="p-2.5 rounded-lg bg-zinc-900 border border-zinc-800 text-xs font-mono break-all flex items-start justify-between gap-2"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <span className="text-zinc-500 mr-2">[{idx}]:</span>
+                          <span className="text-zinc-200">
+                            {typeof w === 'object' ? JSON.stringify(w) : String(w)}
+                          </span>
+                        </div>
+                        {canBind && (
+                          <button
+                            onClick={() => onOpenBindAssetModal?.(String(node.id), `widget_${idx}`, idx)}
+                            className="shrink-0 p-1 rounded hover:bg-zinc-800 text-cyan-400 hover:text-cyan-300 transition-colors cursor-pointer"
+                            title="将素材库资产绑定至此素材参数"
+                          >
+                            <Link2 className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="text-xs text-zinc-500 italic">无内部参数</div>
@@ -144,18 +276,20 @@ export const NodeDetailDrawer: React.FC<NodeDetailDrawerProps> = ({
                           <span className="text-[10px] text-zinc-500 font-mono">({inp.type})</span>
                         </div>
 
-                        {conn ? (
-                          <button
-                            onClick={() => onSelectNodeById(String(conn[1]))}
-                            className="flex items-center gap-1 text-[11px] text-cyan-400 hover:text-cyan-300 font-mono cursor-pointer"
-                            title={`查看前序节点 #${conn[1]}`}
-                          >
-                            <span>from #{conn[1]}</span>
-                            <ArrowRight className="w-3 h-3" />
-                          </button>
-                        ) : (
-                          <span className="text-[10px] text-zinc-600">未连线</span>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {conn ? (
+                            <button
+                              onClick={() => onSelectNodeById(String(conn[1]))}
+                              className="flex items-center gap-1 text-[11px] text-cyan-400 hover:text-cyan-300 font-mono cursor-pointer"
+                              title={`查看前序节点 #${conn[1]}`}
+                            >
+                              <span>from #{conn[1]}</span>
+                              <ArrowRight className="w-3 h-3" />
+                            </button>
+                          ) : (
+                            <span className="text-[10px] text-zinc-600">未连线</span>
+                          )}
+                        </div>
                       </div>
                     );
                   })}

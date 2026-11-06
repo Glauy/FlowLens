@@ -81,10 +81,10 @@ export const AssetPickerModal: React.FC<AssetPickerModalProps> = ({
             <FolderOpen className="w-4 h-4 text-cyan-400" />
             <div>
               <h3 className="text-sm font-bold text-white">
-                {mode === 'cover' ? '选择工作流封面 (全局素材池)' : '全局素材池 (引用复用)'}
+                {mode === 'cover' ? '选择工作流封面 (全局素材库)' : '全局素材库 (引用复用)'}
               </h3>
               <p className="text-[11px] text-zinc-500">
-                图片素材为全局独立存储，支持跨工作流无损复用，无需重复上传。
+                素材为全局独立存储，支持跨工作流无损复用，无需重复上传。
               </p>
             </div>
           </div>
@@ -103,7 +103,7 @@ export const AssetPickerModal: React.FC<AssetPickerModalProps> = ({
             <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="搜索素材池文件名称..."
+              placeholder="搜索素材库文件名称..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               className="w-full bg-zinc-950 border border-zinc-800 focus:border-cyan-500/80 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white outline-none"
@@ -114,7 +114,7 @@ export const AssetPickerModal: React.FC<AssetPickerModalProps> = ({
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*,video/*"
+              accept="image/*,video/*,audio/*"
               onChange={handleFileUpload}
               className="hidden"
             />
@@ -123,7 +123,7 @@ export const AssetPickerModal: React.FC<AssetPickerModalProps> = ({
               className="flex items-center gap-1.5 px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-semibold cursor-pointer transition-colors shadow-sm"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>上传并存入素材池</span>
+              <span>上传并存入素材库</span>
             </button>
           </div>
         </div>
@@ -132,12 +132,12 @@ export const AssetPickerModal: React.FC<AssetPickerModalProps> = ({
         <div className="flex-1 overflow-y-auto p-4">
           {isLoading ? (
             <div className="h-48 flex items-center justify-center text-xs text-zinc-500 font-mono">
-              加载素材池中...
+              加载素材库中...
             </div>
           ) : filteredAssets.length === 0 ? (
             <div className="h-48 flex flex-col items-center justify-center text-center text-xs text-zinc-500">
               <ImageIcon className="w-8 h-8 text-zinc-700 mb-2" />
-              <span>未找到素材，可直接上传本地图片</span>
+              <span>未找到素材，可直接上传本地文件</span>
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
@@ -214,11 +214,11 @@ export const AssetPickerModal: React.FC<AssetPickerModalProps> = ({
                         {/* Link / Unlink button */}
                         {!isLinked && (
                           <button
-                            onClick={() => onLinkAsset(asset.id, 'showcase')}
-                            className="px-2 py-1 bg-cyan-600/30 hover:bg-cyan-600/50 text-cyan-300 rounded text-[10px] font-medium transition-colors cursor-pointer"
+                            onClick={() => onLinkAsset(asset.id, asset.type || 'showcase')}
+                            className="px-2.5 py-1 bg-cyan-600/30 hover:bg-cyan-600/50 text-cyan-300 rounded text-[10px] font-medium transition-colors cursor-pointer"
                             title="关联引用到当前工作流"
                           >
-                            关联
+                            + 关联入库
                           </button>
                         )}
                       </div>

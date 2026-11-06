@@ -22,7 +22,7 @@ import {
 } from '../../utils/graphGeometry';
 import { CanvasSettingsPopover } from './CanvasSettingsPopover';
 import { SlidersHorizontal, EyeOff, X, Download } from 'lucide-react';
-import { AssetRecord } from '../../types/workflow';
+import { AssetRecord, WorkflowAssetRecord } from '../../types/workflow';
 
 interface GraphCanvasProps {
   raw: ComfyWorkflowRaw;
@@ -42,6 +42,7 @@ interface GraphCanvasProps {
   canRedo: boolean;
   fitTrigger?: number;
   assets?: AssetRecord[];
+  workflowAssetLinks?: { link: WorkflowAssetRecord; asset: AssetRecord }[];
   onBindNodeAsset?: (node: ComfyNode) => void;
 }
 
@@ -61,6 +62,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
   redo,
   fitTrigger,
   assets = [],
+  workflowAssetLinks = [],
   onBindNodeAsset
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -211,20 +213,33 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
       maxY = Math.max(maxY, pos.y + h);
     });
 
+    (raw.groups || []).forEach((grp, idx) => {
+      const gId = String(grp.id || `group_${idx}`);
+      const bounds = groupPositions[gId] || grp.bounding;
+      if (bounds) {
+        const [gx, gy, gw, gh] = bounds;
+        minX = Math.min(minX, gx);
+        minY = Math.min(minY, gy);
+        maxX = Math.max(maxX, gx + gw);
+        maxY = Math.max(maxY, gy + gh);
+      }
+    });
+
     if (minX === Infinity) return;
 
+    // Generous balanced margins (160px horizontal, 140px vertical)
     const graphWidth = maxX - minX + 160;
-    const graphHeight = maxY - minY + 160;
+    const graphHeight = maxY - minY + 140;
 
     const zoomX = rect.width / graphWidth;
     const zoomY = rect.height / graphHeight;
-    const zoom = Math.min(Math.max(Math.min(zoomX, zoomY), 0.25), 1.4);
+    const zoom = Math.min(Math.max(Math.min(zoomX, zoomY), 0.25), 1.25);
 
     const x = (rect.width - (maxX - minX) * zoom) / 2 - minX * zoom;
     const y = (rect.height - (maxY - minY) * zoom) / 2 - minY * zoom;
 
     onUpdateViewport({ x, y, zoom });
-  }, [raw.nodes, nodePositions, onUpdateViewport]);
+  }, [raw.nodes, raw.groups, nodePositions, groupPositions, onUpdateViewport]);
 
   useEffect(() => {
     if (fitTrigger && fitTrigger > 0) {
@@ -612,6 +627,24 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
           className="absolute overflow-visible pointer-events-none"
           style={{ width: 1, height: 1 }}
         >
+          {/* Neon Bloom and High-Tech Energy Glow Filters */}
+          <defs>
+            <filter id="fl-wire-bloom" x="-30%" y="-30%" width="160%" height="160%">
+              <feGaussianBlur stdDeviation="3.2" result="blur" />
+              <feMerge>
+                <feMergeNode in="blur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+            <filter id="fl-photon-glow" x="-40%" y="-40%" width="180%" height="180%">
+              <feGaussianBlur stdDeviation="2.2" result="laserGlow" />
+              <feMerge>
+                <feMergeNode in="laserGlow" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
+
           {/* Groups */}
           {(raw.groups || []).map((grp, idx) => {
             const gId = String(grp.id || `group_${idx}`);
@@ -704,45 +737,69 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
                 !isLinkActive;
 
               return (
-                <g key={lId}>
-                  {/* Glow underlay if active */}
+                <g key={lId} opacity={isDimmedLink ? 0.14 : 1}>
+                  {/* Layer 0: Dark cable backing - provides depth and separates cables from background grid */}
+                  <path
+                    d={pathD}
+                    fill="none"
+                    stroke="#090a0f"
+                    strokeWidth={isLinkActive ? 5.5 : 3.8}
+                    strokeOpacity={0.85}
+                    strokeLinecap="round"
+                  />
+
+                  {/* Layer 1: Ambient Neon Bloom Underlay when link is active or traced */}
                   {isLinkActive && (
                     <path
                       d={pathD}
                       fill="none"
                       stroke={slotColor}
-                      strokeWidth={7}
-                      strokeOpacity={0.35}
+                      strokeWidth={8}
+                      strokeOpacity={0.42}
                       strokeLinecap="round"
+                      filter="url(#fl-wire-bloom)"
                     />
                   )}
 
-                  {/* Main solid wire */}
+                  {/* Layer 2: Main Solid Data Cable (preserves authentic ComfyUI slot color) */}
                   <path
                     d={pathD}
                     fill="none"
-                    stroke={isLinkActive ? '#ffffff' : slotColor}
-                    strokeWidth={isLinkActive ? 3.5 : 2}
-                    strokeOpacity={isDimmedLink ? 0.15 : isLinkActive ? 1.0 : 0.8}
+                    stroke={slotColor}
+                    strokeWidth={isLinkActive ? 2.8 : 1.8}
+                    strokeOpacity={isLinkActive ? 0.98 : 0.72}
                     strokeLinecap="round"
                   />
 
-                  {/* Flow animation stream overlay (流光效果) */}
-                  {isStreamAnimated && (
-                    <path
-                      d={pathD}
-                      fill="none"
-                      stroke={isLinkActive ? '#67e8f9' : slotColor}
-                      strokeWidth={isLinkActive ? 3.5 : 2}
-                      strokeDasharray={isLinkActive ? '10 20' : '8 24'}
-                      strokeLinecap="round"
-                      className={speedClass}
-                      style={{
-                        filter: isLinkActive
-                          ? 'drop-shadow(0 0 5px rgba(103, 232, 249, 0.8))'
-                          : 'drop-shadow(0 0 3px rgba(255, 255, 255, 0.4))'
-                      }}
-                    />
+                  {/* Layer 3: High-End Fiber-Optic Energy Stream & Photon Pulse */}
+                  {isStreamAnimated && !isDimmedLink && (
+                    <>
+                      {/* 3a: Trailing Comet-Tail Energy Beam */}
+                      <path
+                        d={pathD}
+                        fill="none"
+                        stroke={isLinkActive ? '#a5f3fc' : slotColor}
+                        strokeWidth={isLinkActive ? 2.8 : 2}
+                        strokeDasharray={isLinkActive ? '44 216' : '36 224'}
+                        strokeLinecap="round"
+                        className={speedClass}
+                        strokeOpacity={isLinkActive ? 0.95 : 0.78}
+                        filter="url(#fl-wire-bloom)"
+                      />
+
+                      {/* 3b: White-Hot High-Frequency Photon Core (Smooth Flow) */}
+                      <path
+                        d={pathD}
+                        fill="none"
+                        stroke="#ffffff"
+                        strokeWidth={isLinkActive ? 2.2 : 1.5}
+                        strokeDasharray="10 250"
+                        strokeLinecap="round"
+                        className={speedClass}
+                        strokeOpacity={0.92}
+                        filter="url(#fl-photon-glow)"
+                      />
+                    </>
                   )}
                 </g>
               );
@@ -774,6 +831,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
               isDownstream={isDownstream}
               isDimmed={isDimmed}
               assets={assets}
+              workflowAssetLinks={workflowAssetLinks}
               onSelect={(nId, isShift) => {
                 if (isShift) {
                   const next = new Set(selectedNodeIds);

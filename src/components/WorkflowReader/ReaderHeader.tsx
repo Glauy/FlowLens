@@ -16,7 +16,8 @@ import {
   ArrowUpDown,
   Download,
   Layers,
-  BookOpen
+  BookOpen,
+  Link2
 } from 'lucide-react';
 import { LayoutAlgorithm, LayoutDirection } from '../../types/workflow';
 
@@ -40,6 +41,7 @@ interface ReaderHeaderProps {
   isSheetOpen: boolean;
   onToggleSheet: () => void;
   assetCount: number;
+  onOpenBindModal?: () => void;
 }
 
 export const ReaderHeader: React.FC<ReaderHeaderProps> = ({
@@ -61,7 +63,8 @@ export const ReaderHeader: React.FC<ReaderHeaderProps> = ({
   onExportWorkflow,
   isSheetOpen,
   onToggleSheet,
-  assetCount
+  assetCount,
+  onOpenBindModal
 }) => {
   const [isLayoutMenuOpen, setIsLayoutMenuOpen] = useState(false);
 
@@ -266,6 +269,18 @@ export const ReaderHeader: React.FC<ReaderHeaderProps> = ({
           </span>
           <span className="text-zinc-500">/ {linkCount} 连线</span>
         </div>
+
+        {/* Direct 'Bind Asset' Quick Trigger Button */}
+        {onOpenBindModal && (
+          <button
+            onClick={onOpenBindModal}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-700/80 hover:border-cyan-500/50 hover:text-cyan-300 transition-all cursor-pointer shadow-sm"
+            title="选择工作流节点与输入参数，绑定素材库素材"
+          >
+            <Link2 className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="hidden sm:inline">绑定素材</span>
+          </button>
+        )}
 
         {/* 隐藏式入口：单个优雅的“资料与沉淀”按钮，点击呼出 Sheet 对话框 */}
         <button

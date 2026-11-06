@@ -20,8 +20,8 @@ import { StorageService } from '../../services/storage';
 import { runLayout, extractOriginalLayout } from '../../services/layout';
 import { ReaderHeader } from './ReaderHeader';
 import { GraphCanvas } from './GraphCanvas';
-import { NodeDetailDrawer } from './NodeDetailDrawer';
 import { WorkflowSheet } from './WorkflowSheet';
+import { BindAssetModal } from './BindAssetModal';
 
 interface ReaderViewProps {
   workflowId: string;
@@ -32,8 +32,9 @@ export const ReaderView: React.FC<ReaderViewProps> = ({ workflowId, onBack }) =>
   const [workflow, setWorkflow] = useState<WorkflowRecord | null>(null);
   const [raw, setRaw] = useState<ComfyWorkflowRaw | null>(null);
 
-  // Hidden Entrance Sheet State (Off by default for pristine full-canvas immersion)
+  // Dock Panel State (Zero-overlay, defaults to closed for immersion)
   const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const [dockMode, setDockMode] = useState<'workflow' | 'node'>('workflow');
   const [fitTrigger, setFitTrigger] = useState(0);
 
   // Layout State
@@ -63,6 +64,12 @@ export const ReaderView: React.FC<ReaderViewProps> = ({ workflowId, onBack }) =>
   const [noteText, setNoteText] = useState<string>('');
   const [assets, setAssets] = useState<{ link: WorkflowAssetRecord; asset: AssetRecord }[]>([]);
 
+  // Bind Asset Modal State
+  const [isBindModalOpen, setIsBindModalOpen] = useState(false);
+  const [bindModalNodeId, setBindModalNodeId] = useState<string | null>(null);
+  const [bindModalParamName, setBindModalParamName] = useState<string | null>(null);
+  const [bindModalSlotIndex, setBindModalSlotIndex] = useState<number | null>(null);
+
   // Push positions to undo history
   const pushHistory = useCallback((positions: Record<string, { x: number; y: number }>) => {
     const nextHistory = historyRef.current.slice(0, historyIndexRef.current + 1);
@@ -83,12 +90,16 @@ export const ReaderView: React.FC<ReaderViewProps> = ({ workflowId, onBack }) =>
       }
       if (e.key.toLowerCase() === 'i' && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
-        setIsSheetOpen(prev => !prev);
+        setIsSheetOpen(prev => {
+          if (prev && dockMode === 'workflow') return false;
+          setDockMode('workflow');
+          return true;
+        });
       }
     };
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, []);
+  }, [dockMode]);
 
   // Load Workflow and associated data
   useEffect(() => {
@@ -247,15 +258,15 @@ export const ReaderView: React.FC<ReaderViewProps> = ({ workflowId, onBack }) =>
     persistLayout(res.nodePositions, res.groupPositions, 'original', currentDirection, viewport);
   };
 
+  // Single click: Selection & Highlight (keeps inspecting node in sync)
   const handleSelectNode = (nId: string | null) => {
     setSelectedNodeId(nId);
     if (nId) {
       setSelectedNodeIds(new Set([nId]));
-      const node = raw?.nodes.find(n => String(n.id) === nId);
-      if (node) setInspectingNode(node);
+      const target = raw?.nodes.find(n => String(n.id) === nId) || null;
+      setInspectingNode(target);
     } else {
       setSelectedNodeIds(new Set());
-      setInspectingNode(null);
     }
   };
 
@@ -264,12 +275,21 @@ export const ReaderView: React.FC<ReaderViewProps> = ({ workflowId, onBack }) =>
     if (nodeIds.size === 1) {
       const singleId = Array.from(nodeIds)[0];
       setSelectedNodeId(singleId);
-      const node = raw?.nodes.find(n => String(n.id) === singleId);
-      if (node) setInspectingNode(node);
+      const target = raw?.nodes.find(n => String(n.id) === singleId) || null;
+      setInspectingNode(target);
     } else {
       setSelectedNodeId(null);
-      setInspectingNode(null);
     }
+  };
+
+  // Double click: Open the Dock Panel directly to Node Details!
+  const handleDoubleClickNode = (node: ComfyNode) => {
+    const idStr = String(node.id);
+    setSelectedNodeId(idStr);
+    setSelectedNodeIds(new Set([idStr]));
+    setInspectingNode(node);
+    setDockMode('node');
+    setIsSheetOpen(true);
   };
 
   const handleToggleFavorite = async () => {
@@ -328,7 +348,7 @@ export const ReaderView: React.FC<ReaderViewProps> = ({ workflowId, onBack }) =>
     await StorageService.saveWorkflowNote(workflowId, note);
   };
 
-  const handleAddAsset = async (file: File, type: AssetType, caption?: string) => {
+  const handleAddAsset = async (file: File, type: AssetType, caption?: string, targetNodeId?: string) => {
     const reader = new FileReader();
     reader.onload = async () => {
       const dataUrl = reader.result as string;
@@ -349,13 +369,38 @@ export const ReaderView: React.FC<ReaderViewProps> = ({ workflowId, onBack }) =>
         assetId,
         assetType: type,
         caption: caption || '',
-        order: assets.length + 1
+        order: assets.length + 1,
+        nodeId: targetNodeId || undefined
       });
 
       const updated = await StorageService.getWorkflowAssets(workflowId);
       setAssets(updated);
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleOpenBindModal = useCallback((nodeId?: string, paramName?: string, slotIndex?: number) => {
+    setBindModalNodeId(nodeId || selectedNodeId || (raw?.nodes[0] ? String(raw.nodes[0].id) : null));
+    setBindModalParamName(paramName || null);
+    setBindModalSlotIndex(slotIndex !== undefined ? slotIndex : null);
+    setIsBindModalOpen(true);
+  }, [selectedNodeId, raw]);
+
+  const handleUnbindNodeAsset = useCallback(async (nodeId: string) => {
+    await StorageService.unbindNodeAsset(workflowId, nodeId);
+    const updated = await StorageService.getWorkflowAssets(workflowId);
+    setAssets(updated);
+  }, [workflowId]);
+
+  const handleRefreshWorkflowAssets = useCallback(async () => {
+    const updated = await StorageService.getWorkflowAssets(workflowId);
+    setAssets(updated);
+  }, [workflowId]);
+
+  const handleBindAssetToNode = async (assetId: string, nodeId?: string | null) => {
+    await StorageService.bindAssetToNode(workflowId, assetId, nodeId || undefined);
+    const updated = await StorageService.getWorkflowAssets(workflowId);
+    setAssets(updated);
   };
 
   const handleUnlinkAsset = async (assetId: string) => {
@@ -395,50 +440,64 @@ export const ReaderView: React.FC<ReaderViewProps> = ({ workflowId, onBack }) =>
         canUndo={canUndo}
         canRedo={canRedo}
         onExportWorkflow={handleExportWorkflow}
-        isSheetOpen={isSheetOpen}
-        onToggleSheet={() => setIsSheetOpen(prev => !prev)}
+        isSheetOpen={isSheetOpen && dockMode === 'workflow'}
+        onToggleSheet={() => {
+          if (isSheetOpen && dockMode === 'workflow') {
+            setIsSheetOpen(false);
+          } else {
+            setIsSheetOpen(true);
+            setDockMode('workflow');
+          }
+        }}
         assetCount={assets.length}
+        onOpenBindModal={() => handleOpenBindModal()}
       />
 
-      {/* Main Workspace (100% Canvas, Zero floating tab pills blocking nodes!) */}
-      <div className="flex-1 relative overflow-hidden w-full h-full">
-        {/* Full Canvas */}
-        <GraphCanvas
-          raw={raw}
-          nodePositions={nodePositions}
-          groupPositions={groupPositions}
-          viewport={viewport}
-          onUpdatePositions={handleUpdatePositions}
-          onUpdateViewport={vp => {
-            setViewport(vp);
-            persistLayout(nodePositions, groupPositions, currentLayout, currentDirection, vp);
-          }}
-          selectedNodeId={selectedNodeId}
-          selectedNodeIds={selectedNodeIds}
-          onSelectNode={handleSelectNode}
-          onSelectMultipleNodes={handleSelectMultipleNodes}
-          onOpenNodeDetail={node => setInspectingNode(node)}
-          undo={handleUndo}
-          redo={handleRedo}
-          canUndo={canUndo}
-          canRedo={canRedo}
-          fitTrigger={fitTrigger}
-          assets={assets.map(a => a.asset)}
-          onBindNodeAsset={() => setIsSheetOpen(true)}
-        />
+      {/* Main Workspace (Flex Row: Left Canvas 100% interactive + Right Zero-Overlay Dock) */}
+      <div className="flex-1 relative flex overflow-hidden w-full h-full">
+        {/* Full Canvas (dynamically resizes, zero backdrop dimming!) */}
+        <div className="flex-1 relative h-full overflow-hidden">
+          <GraphCanvas
+            raw={raw}
+            nodePositions={nodePositions}
+            groupPositions={groupPositions}
+            viewport={viewport}
+            onUpdatePositions={handleUpdatePositions}
+            onUpdateViewport={vp => {
+              setViewport(vp);
+              persistLayout(nodePositions, groupPositions, currentLayout, currentDirection, vp);
+            }}
+            selectedNodeId={selectedNodeId}
+            selectedNodeIds={selectedNodeIds}
+            onSelectNode={handleSelectNode}
+            onSelectMultipleNodes={handleSelectMultipleNodes}
+            onOpenNodeDetail={handleDoubleClickNode}
+            undo={handleUndo}
+            redo={handleRedo}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            fitTrigger={fitTrigger}
+            assets={assets.map(a => a.asset)}
+            workflowAssetLinks={assets}
+            onBindNodeAsset={node => handleOpenBindModal(String(node.id))}
+          />
+        </div>
 
-        {/* Selected Node Inspector Drawer (Only opens when a specific node on canvas is clicked) */}
-        <NodeDetailDrawer
-          node={inspectingNode}
-          raw={raw}
-          onClose={() => setInspectingNode(null)}
-          onSelectNodeById={handleSelectNode}
-        />
-
-        {/* Slide-over Workflow Sheet: Opened via the clean trigger, hosting the 3 tabs inside! */}
+        {/* Docked Zero-Overlay Panel (Workflow Knowledge & Node Inspector) */}
         <WorkflowSheet
           isOpen={isSheetOpen}
           onClose={() => setIsSheetOpen(false)}
+          dockMode={dockMode}
+          onSwitchDockMode={setDockMode}
+          inspectingNode={inspectingNode}
+          raw={raw}
+          onSelectNodeById={nId => {
+            handleSelectNode(nId);
+            const target = raw?.nodes.find(n => String(n.id) === nId);
+            if (target) setInspectingNode(target);
+          }}
+          onOpenBindAssetModal={handleOpenBindModal}
+          onUnbindNodeAsset={handleUnbindNodeAsset}
           workflow={workflow}
           onUpdateWorkflow={updated => {
             const next = { ...workflow, ...updated };
@@ -455,7 +514,24 @@ export const ReaderView: React.FC<ReaderViewProps> = ({ workflowId, onBack }) =>
           assets={assets}
           onAddAsset={handleAddAsset}
           onUnlinkAsset={handleUnlinkAsset}
+          onBindAssetToNode={handleBindAssetToNode}
+          onOpenBindModal={handleOpenBindModal}
         />
+
+        {/* Dedicated Bind Asset to Node & Parameter Modal */}
+        {raw && (
+          <BindAssetModal
+            isOpen={isBindModalOpen}
+            onClose={() => setIsBindModalOpen(false)}
+            workflowId={workflowId}
+            raw={raw}
+            initialNodeId={bindModalNodeId}
+            initialParamName={bindModalParamName}
+            initialSlotIndex={bindModalSlotIndex}
+            workflowAssetLinks={assets}
+            onBindingComplete={handleRefreshWorkflowAssets}
+          />
+        )}
       </div>
     </div>
   );

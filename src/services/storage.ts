@@ -10,6 +10,7 @@ import {
   WorkflowTagRecord,
   AssetRecord,
   WorkflowAssetRecord,
+  AssetUsage,
   WorkflowNoteRecord,
   WorkflowLayoutRecord,
   ComfyWorkflowRaw,
@@ -404,16 +405,19 @@ export const StorageService = {
     const store = tx.objectStore('workflow_tags');
     const idx = store.index('workflowId');
 
-    const existingKeys = await reqToPromise(idx.getAllKeys(workflowId));
-    existingKeys.forEach(k => store.delete(k));
+    const req = idx.getAllKeys(workflowId);
+    req.onsuccess = () => {
+      const existingKeys = req.result || [];
+      existingKeys.forEach(k => store.delete(k));
 
-    tags.forEach(t => {
-      store.put({
-        workflowId,
-        tagId: t.tagId,
-        isAutoDetected: !!t.isAutoDetected
+      tags.forEach(t => {
+        store.put({
+          workflowId,
+          tagId: t.tagId,
+          isAutoDetected: !!t.isAutoDetected
+        });
       });
-    });
+    };
 
     await txToPromise(tx);
   },
@@ -427,11 +431,12 @@ export const StorageService = {
 
     if (links.length === 0) return [];
 
-    const { store: assetStore } = await getStore('assets', 'readonly');
+    const allAssets = await this.getAllAssets();
+    const assetMap = new Map(allAssets.map(a => [a.id, a]));
     const results: { link: WorkflowAssetRecord; asset: AssetRecord }[] = [];
 
     for (const link of links.sort((a, b) => a.order - b.order)) {
-      const asset: AssetRecord = await reqToPromise(assetStore.get(link.assetId));
+      const asset = assetMap.get(link.assetId);
       if (asset) {
         results.push({ link, asset });
       }
@@ -467,7 +472,107 @@ export const StorageService = {
 
   async linkAssetToWorkflow(link: WorkflowAssetRecord): Promise<void> {
     const { store, tx } = await getStore('workflow_assets', 'readwrite');
-    store.put(link);
+    // If nodeId is specified, ensure any other asset in this workflow bound to this node is unbound
+    if (link.nodeId !== undefined && link.nodeId !== null && String(link.nodeId).trim() !== '') {
+      const idx = store.index('workflowId');
+      const req = idx.getAll(link.workflowId);
+      req.onsuccess = () => {
+        const existing: WorkflowAssetRecord[] = req.result || [];
+        for (const item of existing) {
+          if (item.assetId !== link.assetId && String(item.nodeId) === String(link.nodeId)) {
+            item.nodeId = undefined;
+            item.paramName = undefined;
+            item.slotIndex = undefined;
+            store.put(item);
+          }
+        }
+        store.put(link);
+      };
+    } else {
+      store.put(link);
+    }
+    await txToPromise(tx);
+  },
+
+  async bindAssetToNode(
+    workflowId: string,
+    assetId: string,
+    nodeId?: number | string | null,
+    paramName?: string,
+    slotIndex?: number
+  ): Promise<void> {
+    // 1. Fetch asset details BEFORE opening the write transaction
+    const asset = await this.getAssetById(assetId);
+
+    // 2. Open write transaction
+    const { store, tx } = await getStore('workflow_assets', 'readwrite');
+    const idx = store.index('workflowId');
+    const req = idx.getAll(workflowId);
+
+    req.onsuccess = () => {
+      const existing: WorkflowAssetRecord[] = req.result || [];
+      let target = existing.find(l => l.assetId === assetId);
+
+      if (nodeId !== undefined && nodeId !== null && String(nodeId).trim() !== '') {
+        // Unbind any other asset in this workflow currently bound to this nodeId
+        for (const item of existing) {
+          if (item.assetId !== assetId && String(item.nodeId) === String(nodeId)) {
+            item.nodeId = undefined;
+            item.paramName = undefined;
+            item.slotIndex = undefined;
+            store.put(item);
+          }
+        }
+
+        if (!target) {
+          target = {
+            workflowId,
+            assetId,
+            assetType: asset?.type || 'input',
+            caption: asset?.name || '',
+            order: existing.length + 1,
+            nodeId,
+            paramName,
+            slotIndex
+          };
+        } else {
+          target.nodeId = nodeId;
+          target.paramName = paramName;
+          target.slotIndex = slotIndex;
+        }
+      } else {
+        if (target) {
+          target.nodeId = undefined;
+          target.paramName = undefined;
+          target.slotIndex = undefined;
+        }
+      }
+
+      if (target) {
+        store.put(target);
+      }
+    };
+
+    await txToPromise(tx);
+  },
+
+  async unbindNodeAsset(workflowId: string, nodeId: number | string): Promise<void> {
+    const { store, tx } = await getStore('workflow_assets', 'readwrite');
+    const idx = store.index('workflowId');
+    const req = idx.getAll(workflowId);
+
+    req.onsuccess = () => {
+      const existing: WorkflowAssetRecord[] = req.result || [];
+      for (const item of existing) {
+        if (String(item.nodeId) === String(nodeId)) {
+          item.nodeId = undefined;
+          item.paramName = undefined;
+          item.slotIndex = undefined;
+          store.put(item);
+        }
+      }
+    };
+
     await txToPromise(tx);
   },
 
@@ -477,17 +582,118 @@ export const StorageService = {
     await txToPromise(tx);
   },
 
+  async updateAsset(asset: AssetRecord): Promise<void> {
+    const { store, tx } = await getStore('assets', 'readwrite');
+    store.put(asset);
+    await txToPromise(tx);
+  },
+
   async deleteAsset(assetId: string): Promise<void> {
     const db = await openDB();
-    const tx = db.transaction(['assets', 'workflow_assets'], 'readwrite');
-    tx.objectStore('assets').delete(assetId);
-
+    const tx = db.transaction(['assets', 'workflow_assets', 'workflows'], 'readwrite');
+    const assetStore = tx.objectStore('assets');
     const linkStore = tx.objectStore('workflow_assets');
+    const wfStore = tx.objectStore('workflows');
+
+    assetStore.delete(assetId);
+
+    // Delete workflow links using request callbacks within the active transaction
     const idx = linkStore.index('assetId');
-    const keys = await reqToPromise(idx.getAllKeys(assetId));
-    keys.forEach(k => linkStore.delete(k));
+    const keysReq = idx.getAllKeys(assetId);
+    keysReq.onsuccess = () => {
+      keysReq.result.forEach(k => linkStore.delete(k));
+    };
+
+    // Clear cover references if any
+    const wfReq = wfStore.getAll();
+    wfReq.onsuccess = () => {
+      const allWfs = wfReq.result as WorkflowRecord[];
+      allWfs.forEach(wf => {
+        if (wf.coverAssetId === assetId) {
+          delete wf.coverAssetId;
+          wf.updatedAt = Date.now();
+          wfStore.put(wf);
+        }
+      });
+    };
 
     await txToPromise(tx);
+  },
+
+  async batchDeleteAssets(assetIds: string[]): Promise<void> {
+    for (const id of assetIds) {
+      await this.deleteAsset(id);
+    }
+  },
+
+  async getAllWorkflowAssetLinks(): Promise<WorkflowAssetRecord[]> {
+    const { store } = await getStore('workflow_assets', 'readonly');
+    return reqToPromise(store.getAll());
+  },
+
+  /**
+   * Retrieves usage information for all assets across all workflows (including covers and linked assets)
+   */
+  async getAssetUsagesMap(): Promise<Map<string, AssetUsage[]>> {
+    const [allWfs, allLinks] = await Promise.all([
+      this.getAllWorkflows(),
+      this.getAllWorkflowAssetLinks()
+    ]);
+
+    const wfMap = new Map(allWfs.map(w => [w.id, w]));
+    const usagesMap = new Map<string, AssetUsage[]>();
+
+    // 1. Process explicit workflow_assets links
+    for (const link of allLinks) {
+      const wf = wfMap.get(link.workflowId);
+      if (!wf) continue;
+
+      if (!usagesMap.has(link.assetId)) {
+        usagesMap.set(link.assetId, []);
+      }
+
+      const list = usagesMap.get(link.assetId)!;
+      const isCover = wf.coverAssetId === link.assetId;
+      if (!list.some(u => u.workflowId === wf.id)) {
+        list.push({
+          workflowId: wf.id,
+          workflowName: wf.name,
+          modelInfo: wf.modelInfo,
+          isCover,
+          assetType: link.assetType,
+          caption: link.caption
+        });
+      }
+    }
+
+    // 2. Process workflow.coverAssetId that might not be in workflow_assets
+    for (const wf of allWfs) {
+      if (wf.coverAssetId) {
+        if (!usagesMap.has(wf.coverAssetId)) {
+          usagesMap.set(wf.coverAssetId, []);
+        }
+        const list = usagesMap.get(wf.coverAssetId)!;
+        const existing = list.find(u => u.workflowId === wf.id);
+        if (existing) {
+          existing.isCover = true;
+        } else {
+          list.push({
+            workflowId: wf.id,
+            workflowName: wf.name,
+            modelInfo: wf.modelInfo,
+            isCover: true,
+            assetType: 'cover'
+          });
+        }
+      }
+    }
+
+    return usagesMap;
+  },
+
+  async getAssetUsage(assetId: string): Promise<AssetUsage[]> {
+    const usagesMap = await this.getAssetUsagesMap();
+    return usagesMap.get(assetId) || [];
   },
 
   // ----------------- NOTES -----------------

@@ -18,6 +18,7 @@ import { FilterSidebar } from './FilterSidebar';
 import { BatchActionBar } from './BatchActionBar';
 import { ImportModal } from './ImportModal';
 import { BatchTagModal } from './BatchTagModal';
+import { CoverPickerModal } from './CoverPickerModal';
 import {
   Search,
   LayoutGrid,
@@ -26,17 +27,20 @@ import {
   SlidersHorizontal,
   Compass,
   ArrowUpDown,
-  X
+  X,
+  FolderOpen,
+  Layers
 } from 'lucide-react';
 
 interface LibraryViewProps {
   onOpenWorkflow: (id: string) => void;
+  onOpenAssetHub?: () => void;
 }
 
 type SortField = 'updatedAt' | 'createdAt' | 'name' | 'nodeCount';
 type SortOrder = 'asc' | 'desc';
 
-export const LibraryView: React.FC<LibraryViewProps> = ({ onOpenWorkflow }) => {
+export const LibraryView: React.FC<LibraryViewProps> = ({ onOpenWorkflow, onOpenAssetHub }) => {
   const [workflows, setWorkflows] = useState<WorkflowRecord[]>([]);
   const [categories, setCategories] = useState<TagCategory[]>([]);
   const [allTags, setAllTags] = useState<Tag[]>([]);
@@ -61,7 +65,15 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onOpenWorkflow }) => {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isBatchTagModalOpen, setIsBatchTagModalOpen] = useState(false);
   const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
+  const [coverEditingWorkflow, setCoverEditingWorkflow] = useState<WorkflowRecord | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  const handleSaveCover = async (assetId: string | null) => {
+    if (!coverEditingWorkflow) return;
+    await StorageService.setWorkflowCover(coverEditingWorkflow.id, assetId);
+    setCoverEditingWorkflow(null);
+    await loadLibraryData();
+  };
 
   // Load all library data
   const loadLibraryData = useCallback(async () => {
@@ -297,22 +309,43 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onOpenWorkflow }) => {
     <div className="h-screen w-screen bg-[#0e0f12] text-zinc-100 flex flex-col overflow-hidden select-none">
       {/* Top Navigation Bar */}
       <header className="h-16 px-5 border-b border-zinc-800/80 bg-zinc-950/80 backdrop-blur-md flex items-center justify-between z-30 shrink-0">
-        {/* Brand */}
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-cyan-500 to-purple-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
-            <Compass className="w-5 h-5 text-white" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="font-extrabold text-base tracking-tight text-white">FlowLens</h1>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-800/40 font-semibold">
-                v1.0
-              </span>
+        {/* Brand & Primary View Switcher */}
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-cyan-500 to-purple-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
+              <Compass className="w-5 h-5 text-white" />
             </div>
-            <div className="text-[11px] text-zinc-400 font-sans">
-              ComfyUI 工作流知识库与视觉画板
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="font-extrabold text-base tracking-tight text-white">FlowLens</h1>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-800/40 font-semibold">
+                  v1.0
+                </span>
+              </div>
+              <div className="text-[11px] text-zinc-400 font-sans">
+                ComfyUI 工作流知识库与视觉画板
+              </div>
             </div>
           </div>
+
+          {/* Primary View Switcher: 工作流库 vs 素材库 */}
+          {onOpenAssetHub && (
+            <div className="hidden sm:flex items-center p-1 bg-zinc-900 border border-zinc-800 rounded-xl">
+              <button
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-cyan-950 text-cyan-300 border border-cyan-500/30 shadow-sm cursor-default"
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>工作流库 ({workflows.length})</span>
+              </button>
+              <button
+                onClick={onOpenAssetHub}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-zinc-400 hover:text-zinc-200 transition-all cursor-pointer"
+              >
+                <FolderOpen className="w-3.5 h-3.5" />
+                <span>素材库</span>
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Global Search Box */}
@@ -499,6 +532,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onOpenWorkflow }) => {
                     onToggleSelect={handleToggleSelect}
                     onToggleFavorite={handleToggleFavorite}
                     onOpen={onOpenWorkflow}
+                    onChangeCover={wf => setCoverEditingWorkflow(wf)}
                   />
                 ))}
               </div>
@@ -531,6 +565,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onOpenWorkflow }) => {
                     onToggleSelect={handleToggleSelect}
                     onToggleFavorite={handleToggleFavorite}
                     onOpen={onOpenWorkflow}
+                    onChangeCover={wf => setCoverEditingWorkflow(wf)}
                   />
                 ))}
               </div>
@@ -565,6 +600,16 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onOpenWorkflow }) => {
           allTags={allTags}
           onSuccess={loadLibraryData}
           onClose={() => setIsBatchTagModalOpen(false)}
+        />
+      )}
+
+      {/* Cover Picker Modal (from Asset Hub or Upload) */}
+      {coverEditingWorkflow && (
+        <CoverPickerModal
+          workflow={coverEditingWorkflow}
+          onSelectCover={handleSaveCover}
+          onClose={() => setCoverEditingWorkflow(null)}
+          onOpenAssetHub={onOpenAssetHub}
         />
       )}
     </div>

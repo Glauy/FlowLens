@@ -27,10 +27,10 @@
   }
 }
 
-/* ComfyUI Wire Flow & Stream Pulse Animations */
+/* ComfyUI High-End Wire Energy & Photon Pulse Animations */
 @keyframes linkStreamFlow {
   from {
-    stroke-dashoffset: 32;
+    stroke-dashoffset: 260;
   }
   to {
     stroke-dashoffset: 0;
@@ -38,14 +38,14 @@
 }
 
 .animate-wire-stream-normal {
-  animation: linkStreamFlow 1.1s linear infinite;
+  animation: linkStreamFlow 2.8s linear infinite;
 }
 
 .animate-wire-stream-fast {
-  animation: linkStreamFlow 0.55s linear infinite;
+  animation: linkStreamFlow 1.4s linear infinite;
 }
 
 .animate-wire-stream-slow {
-  animation: linkStreamFlow 2.2s linear infinite;
+  animation: linkStreamFlow 4.5s linear infinite;
 }
 

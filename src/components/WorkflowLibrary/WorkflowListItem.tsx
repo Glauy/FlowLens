@@ -21,6 +21,7 @@ interface WorkflowListItemProps {
   onToggleSelect: (id: string, e: React.MouseEvent) => void;
   onToggleFavorite: (id: string, e: React.MouseEvent) => void;
   onOpen: (id: string) => void;
+  onChangeCover?: (workflow: WorkflowRecord, e: React.MouseEvent) => void;
 }
 
 export const WorkflowListItem: React.FC<WorkflowListItemProps> = ({
@@ -30,7 +31,8 @@ export const WorkflowListItem: React.FC<WorkflowListItemProps> = ({
   isSelected,
   onToggleSelect,
   onToggleFavorite,
-  onOpen
+  onOpen,
+  onChangeCover
 }) => {
   const coverAsset =
     (workflow.coverAssetId && assets.find(a => a.asset.id === workflow.coverAssetId)) ||
@@ -67,12 +69,24 @@ export const WorkflowListItem: React.FC<WorkflowListItemProps> = ({
         </button>
 
         {/* Mini Preview Image */}
-        <div className="w-12 h-12 rounded-lg bg-zinc-950 overflow-hidden border border-zinc-800 shrink-0 flex items-center justify-center">
+        <div
+          onClick={e => {
+            if (onChangeCover) {
+              e.stopPropagation();
+              onChangeCover(workflow, e);
+            }
+          }}
+          className="relative group/thumb w-12 h-12 rounded-lg bg-zinc-950 overflow-hidden border border-zinc-800 shrink-0 flex items-center justify-center cursor-pointer hover:border-cyan-400"
+          title="更换封面"
+        >
           {coverAsset ? (
             <img src={coverAsset.asset.dataUrl} alt="" className="w-full h-full object-cover" />
           ) : (
             <div className="w-6 h-6 rounded bg-zinc-800" />
           )}
+          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/thumb:opacity-100 flex items-center justify-center transition-opacity">
+            <ImageIcon className="w-4 h-4 text-cyan-300" />
+          </div>
         </div>
 
         {/* Workflow Title & Desc */}

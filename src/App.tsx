@@ -6,6 +6,7 @@
 import { useState, useEffect } from 'react';
 import { LibraryView } from './components/WorkflowLibrary/LibraryView';
 import { ReaderView } from './components/WorkflowReader/ReaderView';
+import { AssetHubView } from './components/AssetLibrary/AssetHubView';
 
 export default function App() {
   const [activeWorkflowId, setActiveWorkflowId] = useState<string | null>(() => {
@@ -16,6 +17,12 @@ export default function App() {
     return null;
   });
 
+  const [activeTab, setActiveTab] = useState<'workflows' | 'assets'>(() => {
+    const hash = window.location.hash;
+    if (hash === '#/assets') return 'assets';
+    return 'workflows';
+  });
+
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash;
@@ -23,6 +30,11 @@ export default function App() {
         setActiveWorkflowId(hash.replace('#/workflow/', ''));
       } else {
         setActiveWorkflowId(null);
+        if (hash === '#/assets') {
+          setActiveTab('assets');
+        } else {
+          setActiveTab('workflows');
+        }
       }
     };
 
@@ -36,13 +48,40 @@ export default function App() {
   };
 
   const handleBackToLibrary = () => {
-    window.location.hash = '#/';
+    window.location.hash = '#/workflows';
     setActiveWorkflowId(null);
+    setActiveTab('workflows');
+  };
+
+  const handleNavigateToAssets = () => {
+    window.location.hash = '#/assets';
+    setActiveWorkflowId(null);
+    setActiveTab('assets');
+  };
+
+  const handleNavigateToWorkflows = () => {
+    window.location.hash = '#/workflows';
+    setActiveWorkflowId(null);
+    setActiveTab('workflows');
   };
 
   if (activeWorkflowId) {
     return <ReaderView workflowId={activeWorkflowId} onBack={handleBackToLibrary} />;
   }
 
-  return <LibraryView onOpenWorkflow={handleOpenWorkflow} />;
+  if (activeTab === 'assets') {
+    return (
+      <AssetHubView
+        onOpenWorkflow={handleOpenWorkflow}
+        onNavigateToWorkflows={handleNavigateToWorkflows}
+      />
+    );
+  }
+
+  return (
+    <LibraryView
+      onOpenWorkflow={handleOpenWorkflow}
+      onOpenAssetHub={handleNavigateToAssets}
+    />
+  );
 }
